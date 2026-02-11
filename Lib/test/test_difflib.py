@@ -283,6 +283,7 @@ class TestSFpatches(unittest.TestCase):
         self.assertIn('&#305;mpl&#305;c&#305;t', output)
 
 class TestDiffer(unittest.TestCase):
+
     def test_close_matches_aligned(self):
         # Of the 4 closely matching pairs, we want 1 to match with 3,
         # and 2 with 4, to align with a "top to bottom" mental model.
@@ -638,6 +639,73 @@ class TestRestore(unittest.TestCase):
             ''.join(difflib.restore([], 0))
         with self.assertRaises(ValueError):
             ''.join(difflib.restore([], 3))
+
+
+class TestLCSUBAutomaton(unittest.TestCase):
+    def test_find(self):
+        cases = [
+            ('abd', 'abcabd', (0, 3, 3)),
+            ('dab', 'abcabd', (1, 0, 2)),
+        ]
+        collect = []
+        for seq1, seq2, expect in cases:
+            result = difflib._LCSUBAutomaton(seq2).find(seq1)
+            self.assertEqual(result, expect)
+            collect.append(result)
+
+    def test_find_with_junk(self):
+        cases = [
+            ('ab_abd', 'abcabd', (3, 3, 3)),
+            ('abd_', 'ab_abd_', (0, 3, 3)),
+            ('abcbd', 'abc_bd', (0, 0, 3)),
+            ('cbd', 'abc_bd', (1, 4, 2)),
+        ]
+        for seq1, seq2, expect in cases:
+            result = difflib._LCSUBAutomaton(seq2, junk=('_')).find(seq1)
+            self.assertEqual(result, expect)
+
+    def test_batchfind(self):
+        seq1 = 'fgfedabacba'
+        seq2 = seq1[::-1]
+        n = len(seq1)
+
+        intervals = []
+        for i in range(n - 1):
+            for j in range(i + 1, min(i + 5, n)):
+                intervals.append((i, j))
+        bounds_list = []
+        for alo, ahi in intervals:
+            for blo, bhi in intervals:
+                bounds_list.append((alo, ahi, blo, bhi))
+
+        aut = difflib._LCSUBAutomaton(seq2)
+        results1 = [aut.find(seq1, *bounds) for bounds in bounds_list]
+        results2 = aut.batchfind(seq1, bounds_list)
+        self.assertEqual(results1, results2)
+
+
+class TestExactSequenceMatcher(unittest.TestCase):
+    def test_cross_test_with_autojunk_false(self):
+        cases = [
+            ("ABCDEFGHIJKLMNOP" * 10, "ACEGIKMOQBDFHJLNP" * 10),
+            (
+                "".join(chr(ord('a') + i % 10) * (i + 1) for i in range(30)),
+                "".join(chr(ord('a') + i % 10) * (30 - i) for i in range(30))
+            ),
+            (
+                "A" + "X"*99 + "BCDEFGHIJKLMNOPQRSTUVWXYZ"*2,
+                "BCDEFGHIJKLMNOPQRSTUVWXYZ"*2 + "A" + "X"*99
+            )
+        ]
+        for seq1, seq2 in cases:
+            for isjunk in [None, lambda x: x in 'aeAE']:
+                sm1 = difflib.SequenceMatcher(isjunk, seq1, seq2, autojunk=False)
+                sm2 = difflib.ExactSequenceMatcher(isjunk, seq1, seq2)
+                self.assertEqual(sm1.bjunk, sm2.bjunk)
+                blocks1 = sm1.get_matching_blocks()
+                blocks2 = sm2.get_matching_blocks()
+                self.assertEqual(blocks1, blocks2)
+                self.assertAlmostEqual(sm1.ratio(), sm2.ratio(), places=3)
 
 
 def setUpModule():
