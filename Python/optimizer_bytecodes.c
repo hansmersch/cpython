@@ -86,6 +86,14 @@ dummy_func(void) {
 
 // BEGIN BYTECODES //
 
+    op(_MAKE_HEAP_SAFE, (value -- value)) {
+        // eliminate _MAKE_HEAP_SAFE when we *know* the value is immortal
+        if (sym_is_immortal(PyJitRef_Unwrap(value))) {
+            ADD_OP(_NOP, 0, 0);
+        }
+        value = PyJitRef_StripReferenceInfo(value);
+    }
+
     op(_LOAD_FAST_CHECK, (-- value)) {
         value = GETLOCAL(oparg);
         // We guarantee this will error - just bail and don't optimize it.
@@ -939,8 +947,7 @@ dummy_func(void) {
     }
 
     op(_RETURN_VALUE, (retval -- res)) {
-        // Mimics PyStackRef_MakeHeapSafe in the interpreter.
-        JitOptRef temp = PyJitRef_StripReferenceInfo(retval);
+        JitOptRef temp = retval;
         DEAD(retval);
         SAVE_STACK();
         ctx->frame->stack_pointer = stack_pointer;
@@ -951,6 +958,7 @@ dummy_func(void) {
             ctx->done = true;
             break;
         }
+
         int returning_stacklevel = this_instr->operand1;
         if (ctx->curr_frame_depth >= 2) {
             PyCodeObject *expected_code = ctx->frames[ctx->curr_frame_depth - 2].code;
@@ -988,8 +996,7 @@ dummy_func(void) {
     }
 
     op(_YIELD_VALUE, (retval -- value)) {
-        // Mimics PyStackRef_MakeHeapSafe in the interpreter.
-        JitOptRef temp = PyJitRef_StripReferenceInfo(retval);
+        JitOptRef temp = retval;
         DEAD(retval);
         SAVE_STACK();
         ctx->frame->stack_pointer = stack_pointer;
